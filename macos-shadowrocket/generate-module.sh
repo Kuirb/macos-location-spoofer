@@ -22,8 +22,8 @@ Options:
   --latitude NUMBER             Target latitude (-90...90)
   --longitude NUMBER            Target longitude (-180...180)
   --altitude NUMBER             Altitude in metres (-1000...20000)
-  --horizontal-accuracy NUMBER  Horizontal accuracy in metres (> 0)
-  --vertical-accuracy NUMBER    Vertical accuracy in metres (> 0)
+  --horizontal-accuracy NUMBER  Horizontal accuracy in metres (>= 1)
+  --vertical-accuracy NUMBER    Vertical accuracy in metres (>= 1)
   --debug true|false            Enable Shadowrocket script diagnostics
   --script-path PATH_OR_URL     Local Script filename or HTTPS URL
   --output PATH                 Generated module path
@@ -56,8 +56,8 @@ in_range() {
   }'
 }
 
-greater_than_zero() {
-  awk -v value="$1" 'BEGIN { exit !(value > 0) }'
+at_least_one() {
+  awk -v value="$1" 'BEGIN { exit !(value >= 1) }'
 }
 
 while [ "$#" -gt 0 ]; do
@@ -119,9 +119,9 @@ in_range "$longitude" -180 180 || die "longitude must be between -180 and 180"
 is_number "$altitude" || die "altitude must be a number"
 in_range "$altitude" -1000 20000 || die "altitude must be between -1000 and 20000"
 is_number "$horizontal_accuracy" || die "horizontal accuracy must be a number"
-greater_than_zero "$horizontal_accuracy" || die "horizontal accuracy must be greater than zero"
+at_least_one "$horizontal_accuracy" || die "horizontal accuracy must be at least 1"
 is_number "$vertical_accuracy" || die "vertical accuracy must be a number"
-greater_than_zero "$vertical_accuracy" || die "vertical accuracy must be greater than zero"
+at_least_one "$vertical_accuracy" || die "vertical accuracy must be at least 1"
 
 case "$debug" in
   true|false) ;;
