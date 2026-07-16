@@ -1,0 +1,20 @@
+macOS Location Spoofer for Shadowrocket
+Copyright (C) 2026 Kuirb and contributors (macOS adaptation)
+
+This project is a modified derivative of:
+
+  ios-location-spoofer
+  https://github.com/mekos2772/ios-location-spoofer
+
+That project credits the original AppleWLoc protocol research in:
+
+  ios-location-spoofer
+  https://github.com/acheong08/ios-location-spoofer
+
+The macOS adaptation was created in 2026. It adds a Shadowrocket for macOS
+workflow, local-script loading, request preparation, safe plain-text
+configuration, module generation, diagnostics, and offline protocol/runtime
+tests. Files have been modified from their upstream versions.
+
+This distribution is licensed under the GNU Affero General Public License,
+version 3. See LICENSE for the complete terms. It is provided without warranty.

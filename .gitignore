@@ -1,0 +1,14 @@
+.DS_Store
+
+# Personal target coordinates and locally generated modules
+macos-shadowrocket/location.conf
+macos-shadowrocket/generated/
+
+# Never publish locally generated HTTPS interception certificates or keys
+*.crt
+*.cer
+*.pem
+*.key
+
+# Diagnostics
+*.log

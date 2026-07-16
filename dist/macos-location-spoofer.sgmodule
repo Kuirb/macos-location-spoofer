@@ -1,0 +1,14 @@
+#!name=macOS Location Spoofer
+#!desc=Rewrite Apple Wi-Fi positioning responses on macOS through Shadowrocket. A trusted local MITM CA is required.
+#!homepage=https://github.com/Kuirb/macos-location-spoofer
+
+# The request hook asks Apple for an uncompressed response. The response hook
+# rewrites the binary AppleWLoc protobuf. The script is loaded from
+# Shadowrocket's local Script directory, so the default copy is not updated
+# remotely after it has been reviewed and imported.
+[Script]
+macOS Location Spoofer Prepare = type=http-request,pattern=^https:\/\/(?:gs-loc(?:-cn)?\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc(?:\?.*)?$,requires-body=0,timeout=5,script-path=location-spoofer.js,argument=mode=prepare&debug=false
+macOS Location Spoofer Response = type=http-response,pattern=^https:\/\/(?:gs-loc(?:-cn)?\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc(?:\?.*)?$,requires-body=1,binary-body-mode=1,max-size=1048576,timeout=12,script-path=location-spoofer.js,argument=mode=response&latitude=37.3349&longitude=-122.00902&horizontalAccuracy=15&verticalAccuracy=25&altitude=56&failOpen=true&debug=false
+
+[MITM]
+hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com
