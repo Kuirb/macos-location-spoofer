@@ -3,13 +3,14 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/macos-location-spoofer.XXXXXX")
-GENERATED="$TEMP_DIR/verification.sgmodule"
 
 command -v node >/dev/null 2>&1 || {
   printf 'error: Node.js is required for the offline verification tests.\n' >&2
   exit 2
 }
+
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/macos-location-spoofer.XXXXXX")
+GENERATED="$TEMP_DIR/verification.sgmodule"
 
 cleanup() {
   rm -rf "$TEMP_DIR"
@@ -40,7 +41,34 @@ grep -q "verticalAccuracy=80" "$GENERATED"
 grep -q 'script-path=location-spoofer.js' "$GENERATED"
 grep -q '^macOS Location Spoofer Prepare = type=http-request' "$GENERATED"
 grep -q '^macOS Location Spoofer Response = type=http-response' "$GENERATED"
-grep -q '^hostname = %APPEND% gs-loc.apple.com' "$GENERATED"
+grep -Eq '__[A-Z_]+__' "$GENERATED" && {
+  printf 'Generated module contains an unresolved placeholder.\n' >&2
+  exit 1
+}
+
+EXPECTED_HOSTNAME='hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com'
+ACTUAL_HOSTNAME=$(grep '^hostname = ' "$GENERATED")
+[ "$ACTUAL_HOSTNAME" = "$EXPECTED_HOSTNAME" ] || {
+  printf 'Generated module must contain exactly the four supported MITM hosts.\n' >&2
+  exit 1
+}
+
+SENSITIVE_MODULE="$TEMP_DIR/sensitive-module.sgmodule"
+sed 's/&debug=false/&configToken=SENSITIVE_CONFIG_TOKEN&debug=false/g' "$GENERATED" > "$SENSITIVE_MODULE"
+MODULE_SUMMARY=$("$SCRIPT_DIR/diagnose.sh" --module-summary "$SENSITIVE_MODULE")
+EXPECTED_SUMMARY=$(printf '%s\n' \
+  '#!name=macOS Location Spoofer' \
+  'macOS Location Spoofer Prepare' \
+  'macOS Location Spoofer Response' \
+  "$EXPECTED_HOSTNAME")
+[ "$MODULE_SUMMARY" = "$EXPECTED_SUMMARY" ] || {
+  printf 'Diagnostic module summary must contain only safe module metadata.\n' >&2
+  exit 1
+}
+if printf '%s\n' "$MODULE_SUMMARY" | grep -Eq 'latitude=|longitude=|configToken=|argument='; then
+  printf 'Diagnostic module summary exposed sensitive module arguments.\n' >&2
+  exit 1
+fi
 
 EXAMPLE_GENERATED="$TEMP_DIR/from-example.sgmodule"
 "$SCRIPT_DIR/update-location.sh" \
@@ -51,6 +79,10 @@ grep -q 'horizontalAccuracy=15' "$EXAMPLE_GENERATED"
 grep -q 'verticalAccuracy=25' "$EXAMPLE_GENERATED"
 grep -q 'altitude=56' "$EXAMPLE_GENERATED"
 grep -q 'debug=false' "$EXAMPLE_GENERATED"
+cmp -s "$EXAMPLE_GENERATED" "$SCRIPT_DIR/../dist/macos-location-spoofer.sgmodule" || {
+  printf 'Generated example module differs from dist/macos-location-spoofer.sgmodule.\n' >&2
+  exit 1
+}
 
 CONFIG="$TEMP_DIR/location.conf"
 FROM_CONFIG="$TEMP_DIR/from-config.sgmodule"
@@ -103,15 +135,66 @@ fi
   exit 1
 }
 
-if "$SCRIPT_DIR/generate-module.sh" --latitude 91 --output "$GENERATED.invalid" >/dev/null 2>&1; then
+if "$SCRIPT_DIR/generate-module.sh" --latitude 91 --output "$TEMP_DIR/invalid.sgmodule" >/dev/null 2>&1; then
   printf 'Expected invalid latitude to fail.\n' >&2
   exit 1
 fi
 
-if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 0.5 --output "$GENERATED.invalid" >/dev/null 2>&1; then
+if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 0.5 --output "$TEMP_DIR/invalid.sgmodule" >/dev/null 2>&1; then
   printf 'Expected sub-metre horizontal accuracy to fail.\n' >&2
   exit 1
 fi
+
+if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 1000001 --output "$TEMP_DIR/invalid.sgmodule" >/dev/null 2>&1; then
+  printf 'Expected oversized horizontal accuracy to fail.\n' >&2
+  exit 1
+fi
+
+if "$SCRIPT_DIR/generate-module.sh" --vertical-accuracy 1.5 --output "$TEMP_DIR/invalid.sgmodule" >/dev/null 2>&1; then
+  printf 'Expected fractional vertical accuracy to fail.\n' >&2
+  exit 1
+fi
+
+MAX_ACCURACY="$TEMP_DIR/max-accuracy.sgmodule"
+"$SCRIPT_DIR/generate-module.sh" \
+  --horizontal-accuracy 1000000 \
+  --vertical-accuracy 1 \
+  --output "$MAX_ACCURACY"
+grep -q 'horizontalAccuracy=1000000' "$MAX_ACCURACY"
+grep -q 'verticalAccuracy=1' "$MAX_ACCURACY"
+
+if (
+  cd "$TEMP_DIR"
+  "$SCRIPT_DIR/generate-module.sh" --output --help
+) >/dev/null 2>&1; then
+  printf 'Expected an option token used as an output value to fail.\n' >&2
+  exit 1
+fi
+
+if "$SCRIPT_DIR/generate-module.sh" --output "$TEMP_DIR/not-a-module.txt" >/dev/null 2>&1; then
+  printf 'Expected a non-.sgmodule output path to fail.\n' >&2
+  exit 1
+fi
+
+if "$SCRIPT_DIR/generate-module.sh" --output "$SCRIPT_DIR/module.template.sgmodule" >/dev/null 2>&1; then
+  printf 'Expected the module template output path to fail.\n' >&2
+  exit 1
+fi
+
+NO_NODE_BIN="$TEMP_DIR/no-node-bin"
+mkdir "$NO_NODE_BIN"
+ln -s "$(command -v dirname)" "$NO_NODE_BIN/dirname"
+if MISSING_NODE_OUTPUT=$(PATH="$NO_NODE_BIN" TMPDIR="$TEMP_DIR/missing-parent" "$SCRIPT_DIR/verify.sh" 2>&1); then
+  printf 'Expected verification without Node.js to fail.\n' >&2
+  exit 1
+fi
+case "$MISSING_NODE_OUTPUT" in
+  *'Node.js is required for the offline verification tests.'*) ;;
+  *)
+    printf 'Verification must check for Node.js before creating a temporary directory.\n' >&2
+    exit 1
+    ;;
+esac
 
 if "$SCRIPT_DIR/generate-module.sh" \
   --script-path 'https://example.invalid/x.js,argument=enabled=false' \

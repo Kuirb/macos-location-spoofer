@@ -13,7 +13,7 @@ Rewrite Apple Wi-Fi positioning responses on macOS through Shadowrocket—withou
 
 - A Mac with Location Services
 - [Shadowrocket for macOS](https://apps.apple.com/app/shadowrocket/id932747118)
-- Git and standard macOS command-line tools; Node.js 18+ only for local tests (no npm install)
+- Git and standard macOS command-line tools; Node.js 22+ only for local tests (no npm install)
 - Permission to install/trust your own CA and a Shadowrocket TUN route that captures `locationd`
 
 ## Quick start
@@ -40,9 +40,9 @@ vertical_accuracy=25
 debug=false
 ```
 
-Ranges: latitude `-90...90`, longitude `-180...180`, altitude `-1000...20000` metres, and each accuracy at least `1` metre. Altitude and accuracy are truncated to integers at runtime; keep `debug=false` unless troubleshooting.
+Ranges: latitude `-90...90`, longitude `-180...180`, altitude `-1000...20000` metres, and each accuracy `1...1000000` metres. Altitude is truncated to an integer at runtime; accuracy must be an integer. Keep `debug=false` unless troubleshooting.
 
-`macos-shadowrocket/location.conf` and personalized files under `macos-shadowrocket/generated/` are gitignored because they can reveal sensitive coordinates. Your generated module is `macos-shadowrocket/generated/macos-location-spoofer.sgmodule`.
+`macos-shadowrocket/location.conf` and personalized files under `macos-shadowrocket/generated/` are gitignored because they can reveal sensitive coordinates. Diagnostics are sanitized by default, but review screenshots, logs, and archives for coordinates and other metadata before sharing. Your generated module is `macos-shadowrocket/generated/macos-location-spoofer.sgmodule`.
 
 ### Configure Shadowrocket
 
@@ -79,7 +79,7 @@ Temporarily set `debug=true`, regenerate and reload the module, reconnect, then 
 2. A log says `patched N wifi devices, M cell towers` with **N + M > 0**.
 3. Maps moves near the configured coordinates.
 
-Set `debug=false`, regenerate, reload, and reconnect afterward; logs and response headers may contain your target coordinates.
+Set `debug=false`, regenerate, reload, and reconnect afterward; diagnostics are sanitized by default, but review logs before sharing.
 
 ## How it works
 
