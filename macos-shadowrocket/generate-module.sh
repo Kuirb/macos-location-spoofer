@@ -67,6 +67,13 @@ is_integer() {
   esac
 }
 
+is_signed_integer() {
+  case "$1" in
+    -*) is_integer "${1#-}" ;;
+    *) is_integer "$1" ;;
+  esac
+}
+
 cleanup() {
   if [ -n "${TEMP_FILE:-}" ] && [ -e "$TEMP_FILE" ]; then
     rm -f "$TEMP_FILE"
@@ -123,7 +130,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      die "unknown option: $1"
+      die "unknown option"
       ;;
   esac
 done
@@ -132,7 +139,7 @@ is_number "$latitude" || die "latitude must be a number"
 in_range "$latitude" -90 90 || die "latitude must be between -90 and 90"
 is_number "$longitude" || die "longitude must be a number"
 in_range "$longitude" -180 180 || die "longitude must be between -180 and 180"
-is_number "$altitude" || die "altitude must be a number"
+is_signed_integer "$altitude" || die "altitude must be an integer"
 in_range "$altitude" -1000 20000 || die "altitude must be between -1000 and 20000"
 is_integer "$horizontal_accuracy" || die "horizontal accuracy must be an integer"
 in_range "$horizontal_accuracy" 1 1000000 || die "horizontal accuracy must be between 1 and 1000000"
@@ -156,7 +163,7 @@ case "$script_path" in
     ;;
 esac
 
-[ -f "$TEMPLATE" ] || die "template not found: $TEMPLATE"
+[ -f "$TEMPLATE" ] || die "template not found"
 
 case "$output" in
   *.sgmodule) ;;
@@ -165,8 +172,12 @@ esac
 
 OUTPUT_PARENT=$(dirname -- "$output")
 OUTPUT_NAME=$(basename -- "$output")
-mkdir -p "$OUTPUT_PARENT"
-OUTPUT_PARENT=$(CDPATH= cd -- "$OUTPUT_PARENT" && pwd -P)
+if ! mkdir -p "$OUTPUT_PARENT" 2>/dev/null; then
+  die "could not create output directory"
+fi
+if ! OUTPUT_PARENT=$(CDPATH= cd -- "$OUTPUT_PARENT" 2>/dev/null && pwd -P); then
+  die "could not resolve output directory"
+fi
 OUTPUT="$OUTPUT_PARENT/$OUTPUT_NAME"
 
 if [ "$OUTPUT" = "$TEMPLATE" ] || { [ -e "$OUTPUT" ] && [ "$OUTPUT" -ef "$TEMPLATE" ]; }; then
@@ -174,9 +185,11 @@ if [ "$OUTPUT" = "$TEMPLATE" ] || { [ -e "$OUTPUT" ] && [ "$OUTPUT" -ef "$TEMPLA
 fi
 [ -d "$OUTPUT" ] && die "output must be a regular file path, not a directory"
 
-TEMP_FILE=$(mktemp "$OUTPUT_PARENT/.${OUTPUT_NAME}.XXXXXX")
+if ! TEMP_FILE=$(mktemp "$OUTPUT_PARENT/.${OUTPUT_NAME}.XXXXXX" 2>/dev/null); then
+  die "could not create temporary output"
+fi
 
-sed \
+if ! sed \
   -e "s|__SCRIPT_PATH__|$script_path|g" \
   -e "s|__LATITUDE__|$latitude|g" \
   -e "s|__LONGITUDE__|$longitude|g" \
@@ -184,16 +197,18 @@ sed \
   -e "s|__HORIZONTAL_ACCURACY__|$horizontal_accuracy|g" \
   -e "s|__VERTICAL_ACCURACY__|$vertical_accuracy|g" \
   -e "s|__DEBUG__|$debug|g" \
-  "$TEMPLATE" > "$TEMP_FILE"
+  "$TEMPLATE" > "$TEMP_FILE" 2>/dev/null; then
+  die "could not render module"
+fi
 
 [ -s "$TEMP_FILE" ] || die "generated module is empty"
 if grep -Eq '__[A-Z_]+__' "$TEMP_FILE"; then
   die "generated module contains unresolved placeholders"
 fi
 
-mv -f "$TEMP_FILE" "$OUTPUT"
+if ! mv -f "$TEMP_FILE" "$OUTPUT" 2>/dev/null; then
+  die "could not write generated module"
+fi
 TEMP_FILE=""
 
-printf 'Generated %s\n' "$OUTPUT"
-printf 'Target: %s, %s (altitude %sm)\n' "$latitude" "$longitude" "$altitude"
-printf 'Script: %s\n' "$script_path"
+printf 'Module generated.\n'

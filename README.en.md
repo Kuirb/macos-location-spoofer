@@ -40,7 +40,7 @@ vertical_accuracy=25
 debug=false
 ```
 
-Ranges: latitude `-90...90`, longitude `-180...180`, altitude `-1000...20000` metres, and each accuracy `1...1000000` metres. Altitude is truncated to an integer at runtime; accuracy must be an integer. Keep `debug=false` unless troubleshooting.
+Ranges: latitude `-90...90`, longitude `-180...180`, altitude `-1000...20000` metres, and each accuracy `1...1000000` metres. Latitude and longitude may be decimal; altitude and both accuracies must be integers. Keep `debug=false` unless troubleshooting.
 
 `macos-shadowrocket/location.conf` and personalized files under `macos-shadowrocket/generated/` are gitignored because they can reveal sensitive coordinates. Diagnostics are sanitized by default, but review screenshots, logs, and archives for coordinates and other metadata before sharing. Your generated module is `macos-shadowrocket/generated/macos-location-spoofer.sgmodule`.
 

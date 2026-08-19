@@ -44,7 +44,7 @@ debug=false
 - `vertical_accuracy`：`1...1000000` 米
 - `debug`：`true` 或 `false`
 
-不要加引号或单位；海拔在运行时会被截断为整数，精度必须是整数。`location.conf` 和 `macos-shadowrocket/generated/` 已被 Git 忽略；诊断默认会脱敏，但分享截图、日志或压缩包前仍应检查坐标和其他元数据。
+不要加引号或单位；纬度和经度可以是小数，海拔和两项精度必须是整数。`location.conf` 和 `macos-shadowrocket/generated/` 已被 Git 忽略；诊断默认会脱敏，但分享截图、日志或压缩包前仍应检查坐标和其他元数据。
 
 ### 2. 测试并生成模块
 

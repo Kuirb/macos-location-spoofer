@@ -32,7 +32,7 @@ node "$SCRIPT_DIR/test-runtime.js"
   --horizontal-accuracy 25 \
   --vertical-accuracy 80 \
   --debug false \
-  --output "$GENERATED"
+  --output "$GENERATED" >/dev/null
 
 grep -q "latitude=39.9042&longitude=116.4074" "$GENERATED"
 grep -q "altitude=43" "$GENERATED"
@@ -156,7 +156,7 @@ assert_safe_summary_rejection "$MISSING_MODULE_PATH"
 EXAMPLE_GENERATED="$TEMP_DIR/from-example.sgmodule"
 "$SCRIPT_DIR/update-location.sh" \
   --config "$SCRIPT_DIR/location.example.conf" \
-  --output "$EXAMPLE_GENERATED"
+  --output "$EXAMPLE_GENERATED" >/dev/null
 grep -q 'latitude=37.3349&longitude=-122.00902' "$EXAMPLE_GENERATED"
 grep -q 'horizontalAccuracy=15' "$EXAMPLE_GENERATED"
 grep -q 'verticalAccuracy=25' "$EXAMPLE_GENERATED"
@@ -178,7 +178,7 @@ printf '%s\n' \
   'vertical_accuracy=20' \
   'debug=false' > "$CONFIG"
 
-"$SCRIPT_DIR/update-location.sh" --config "$CONFIG" --output "$FROM_CONFIG"
+"$SCRIPT_DIR/update-location.sh" --config "$CONFIG" --output "$FROM_CONFIG" >/dev/null
 grep -q 'latitude=35.658581&longitude=139.745433' "$FROM_CONFIG"
 grep -q 'horizontalAccuracy=10' "$FROM_CONFIG"
 grep -q 'verticalAccuracy=20' "$FROM_CONFIG"
@@ -223,6 +223,64 @@ if "$SCRIPT_DIR/generate-module.sh" --latitude 91 --output "$TEMP_DIR/invalid.sg
   exit 1
 fi
 
+FRACTIONAL_ALTITUDE_OUTPUT="$TEMP_DIR/fractional-altitude.sgmodule"
+if "$SCRIPT_DIR/generate-module.sh" --altitude 56.5 --output "$FRACTIONAL_ALTITUDE_OUTPUT" >/dev/null 2>&1; then
+  printf 'Expected fractional altitude to fail.\n' >&2
+  exit 1
+fi
+
+NEGATIVE_ALTITUDE_OUTPUT="$TEMP_DIR/negative-altitude.sgmodule"
+"$SCRIPT_DIR/generate-module.sh" --altitude -1000 --output "$NEGATIVE_ALTITUDE_OUTPUT" >/dev/null
+grep -q 'altitude=-1000' "$NEGATIVE_ALTITUDE_OUTPUT"
+
+SENTINEL_LATITUDE='11.111111'
+SENTINEL_LONGITUDE='-22.222222'
+SENTINEL_ALTITUDE='-333'
+SENTINEL_TOKEN='SENSITIVE_CONFIG_TOKEN'
+SENTINEL_SCRIPT_URL="https://example.invalid/${SENTINEL_TOKEN}/location-spoofer.js"
+SENTINEL_OUTPUT="$TEMP_DIR/${SENTINEL_TOKEN}-generated.sgmodule"
+GENERATOR_OUTPUT=$("$SCRIPT_DIR/generate-module.sh" \
+  --latitude "$SENTINEL_LATITUDE" \
+  --longitude "$SENTINEL_LONGITUDE" \
+  --altitude "$SENTINEL_ALTITUDE" \
+  --script-path "$SENTINEL_SCRIPT_URL" \
+  --output "$SENTINEL_OUTPUT" 2>&1)
+[ "$GENERATOR_OUTPUT" = 'Module generated.' ] || {
+  printf 'Generator success output must be a fixed generic line.\n' >&2
+  exit 1
+}
+if printf '%s\n' "$GENERATOR_OUTPUT" | grep -F -e "$SENTINEL_LATITUDE" -e "$SENTINEL_LONGITUDE" -e "$SENTINEL_ALTITUDE" -e "$SENTINEL_TOKEN" -e "$SENTINEL_SCRIPT_URL" -e "$SENTINEL_OUTPUT" >/dev/null; then
+  printf 'Generator success output exposed sensitive input.\n' >&2
+  exit 1
+fi
+
+SENTINEL_CONFIG="$TEMP_DIR/${SENTINEL_TOKEN}-location.conf"
+printf '%s\n' \
+  "latitude=$SENTINEL_LATITUDE" \
+  "longitude=$SENTINEL_LONGITUDE" \
+  "altitude=$SENTINEL_ALTITUDE" \
+  'horizontal_accuracy=15' \
+  'vertical_accuracy=25' \
+  'debug=false' > "$SENTINEL_CONFIG"
+UPDATE_OUTPUT=$("$SCRIPT_DIR/update-location.sh" --config "$SENTINEL_CONFIG" --output "$SENTINEL_OUTPUT" 2>&1)
+[ "$UPDATE_OUTPUT" = 'Module generated.' ] || {
+  printf 'Update success output must be a fixed generic line.\n' >&2
+  exit 1
+}
+if printf '%s\n' "$UPDATE_OUTPUT" | grep -F -e "$SENTINEL_LATITUDE" -e "$SENTINEL_LONGITUDE" -e "$SENTINEL_ALTITUDE" -e "$SENTINEL_TOKEN" -e "$SENTINEL_OUTPUT" >/dev/null; then
+  printf 'Update success output exposed sensitive input.\n' >&2
+  exit 1
+fi
+
+if SENSITIVE_ERROR_OUTPUT=$("$SCRIPT_DIR/generate-module.sh" "--${SENTINEL_TOKEN}" 2>&1); then
+  printf 'Expected an unknown option to fail.\n' >&2
+  exit 1
+fi
+if printf '%s\n' "$SENSITIVE_ERROR_OUTPUT" | grep -F "$SENTINEL_TOKEN" >/dev/null; then
+  printf 'Generator error output exposed sensitive input.\n' >&2
+  exit 1
+fi
+
 if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 0.5 --output "$TEMP_DIR/invalid.sgmodule" >/dev/null 2>&1; then
   printf 'Expected sub-metre horizontal accuracy to fail.\n' >&2
   exit 1
@@ -242,7 +300,7 @@ MAX_ACCURACY="$TEMP_DIR/max-accuracy.sgmodule"
 "$SCRIPT_DIR/generate-module.sh" \
   --horizontal-accuracy 1000000 \
   --vertical-accuracy 1 \
-  --output "$MAX_ACCURACY"
+  --output "$MAX_ACCURACY" >/dev/null
 grep -q 'horizontalAccuracy=1000000' "$MAX_ACCURACY"
 grep -q 'verticalAccuracy=1' "$MAX_ACCURACY"
 

@@ -221,6 +221,40 @@ assert.deepEqual(
   "overlong varint records must be preserved while later valid records are rewritten"
 );
 
+const tenthPayloadTooLargeLocation = Uint8Array.from([
+  0x08,
+  0xff, 0xff, 0xff, 0xff, 0xff,
+  0xff, 0xff, 0xff, 0xff, 0x02
+]);
+const tenthPayloadTooLargeWifiRecord = spoofer.concatBytes([
+  Uint8Array.from([0x12, tenthPayloadTooLargeLocation.length]),
+  tenthPayloadTooLargeLocation
+]);
+const tenthPayloadTooLargeWifiResponse = spoofer.concatBytes([
+  Uint8Array.from([0x12, tenthPayloadTooLargeWifiRecord.length]),
+  tenthPayloadTooLargeWifiRecord
+]);
+const tenthPayloadTooLargeResult = spoofer.spoofAppleResponse(tenthPayloadTooLargeWifiResponse, target);
+assert.equal(tenthPayloadTooLargeResult.wifiCount + tenthPayloadTooLargeResult.cellCount, 0);
+assert.deepEqual(
+  tenthPayloadTooLargeResult.response,
+  tenthPayloadTooLargeWifiResponse,
+  "10-byte varints with an oversized tenth payload must remain unchanged"
+);
+
+const mixedTenthPayloadTooLargeRoot = spoofer.concatBytes([tenthPayloadTooLargeWifiResponse, wifi]);
+const mixedTenthPayloadTooLargeResult = spoofer.spoofAppleResponse(mixedTenthPayloadTooLargeRoot, target);
+assert.equal(
+  mixedTenthPayloadTooLargeResult.wifiCount,
+  1,
+  "valid records after oversized tenth payload varints must still be rewritten"
+);
+assert.deepEqual(
+  spoofer.parseFields(mixedTenthPayloadTooLargeResult.response)[0].raw,
+  tenthPayloadTooLargeWifiResponse,
+  "oversized tenth payload varints must be preserved while later valid records are rewritten"
+);
+
 assert.throws(
   () => spoofer.normalizeConfig({ latitude: 91, longitude: 0 }),
   /invalid latitude/
