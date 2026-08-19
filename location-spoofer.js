@@ -31,6 +31,9 @@
     prepareHeaders: false,
     rawLimit: 0
   };
+  var MAX_ACCURACY_METRES = 1000000;
+  var MIN_SIGNED_INT64 = -(1n << 63n);
+  var MAX_SIGNED_INT64 = (1n << 63n) - 1n;
 
   var runtimeCompleted = false;
 
@@ -268,7 +271,18 @@
   }
 
   function encodeVarintSignedInt64(value) {
-    var v = typeof value === "bigint" ? value : BigInt(Math.trunc(value));
+    var v;
+    if (typeof value === "bigint") {
+      v = value;
+    } else {
+      if (!isSafeInteger(value)) {
+        throw new Error("signed int64 value must be a safe integer");
+      }
+      v = BigInt(value);
+    }
+    if (v < MIN_SIGNED_INT64 || v > MAX_SIGNED_INT64) {
+      throw new Error("signed int64 value out of range");
+    }
     if (v < 0n) {
       v = BigInt.asUintN(64, v);
     }
@@ -279,18 +293,23 @@
     var result = 0n;
     var shift = 0n;
     var current = offset;
+    var byteCount = 0;
 
     while (current < bytes.length) {
       var b = bytes[current];
       current += 1;
+      byteCount += 1;
+      if (byteCount === 10 && (b & 0x7f) > 0x01) {
+        throw new Error("varint exceeds uint64");
+      }
       result |= BigInt(b & 0x7f) << shift;
       if ((b & 0x80) === 0) {
         return { value: result, offset: current };
       }
-      shift += 7n;
-      if (shift > 70n) {
+      if (byteCount === 10) {
         throw new Error("varint too long");
       }
+      shift += 7n;
     }
 
     throw new Error("unterminated varint");
@@ -428,6 +447,10 @@
     return Math.trunc(Number(value) * 100000000);
   }
 
+  function isSafeInteger(value) {
+    return typeof value === "number" && Number.isSafeInteger(value);
+  }
+
   function parseBoolean(value, defaultValue) {
     if (value === true || value === false) {
       return value;
@@ -466,12 +489,12 @@
     cfg.mode = mode === "request" || mode === "prepare" || mode === "probe" || mode === "inspect" ? mode : "response";
     cfg.latitude = Number(cfg.latitude);
     cfg.longitude = Number(cfg.longitude);
-    cfg.horizontalAccuracy = Math.trunc(Number(cfg.horizontalAccuracy));
-    cfg.verticalAccuracy = Math.trunc(Number(cfg.verticalAccuracy));
-    cfg.altitude = Math.trunc(Number(cfg.altitude));
-    cfg.unknownValue4 = Math.trunc(Number(cfg.unknownValue4));
-    cfg.motionActivityType = Math.trunc(Number(cfg.motionActivityType));
-    cfg.motionActivityConfidence = Math.trunc(Number(cfg.motionActivityConfidence));
+    cfg.horizontalAccuracy = Number(cfg.horizontalAccuracy);
+    cfg.verticalAccuracy = Number(cfg.verticalAccuracy);
+    cfg.altitude = Number(cfg.altitude);
+    cfg.unknownValue4 = Number(cfg.unknownValue4);
+    cfg.motionActivityType = Number(cfg.motionActivityType);
+    cfg.motionActivityConfidence = Number(cfg.motionActivityConfidence);
     cfg.dumpRaw = cfg.dumpRaw === true || String(cfg.dumpRaw).toLowerCase() === "true";
     cfg.dumpHeaders = cfg.dumpHeaders === true || String(cfg.dumpHeaders).toLowerCase() === "true";
     cfg.prepareHeaders = cfg.prepareHeaders === true || String(cfg.prepareHeaders).toLowerCase() === "true";
@@ -486,19 +509,19 @@
     if (!Number.isFinite(cfg.longitude) || cfg.longitude < -180 || cfg.longitude > 180) {
       throw new Error("invalid longitude");
     }
-    if (!Number.isFinite(cfg.altitude) || cfg.altitude < -1000 || cfg.altitude > 20000) {
+    if (!isSafeInteger(cfg.altitude) || cfg.altitude < -1000 || cfg.altitude > 20000) {
       throw new Error("invalid altitude");
     }
-    if (!Number.isFinite(cfg.horizontalAccuracy) || cfg.horizontalAccuracy <= 0) {
+    if (!isSafeInteger(cfg.horizontalAccuracy) || cfg.horizontalAccuracy < 1 || cfg.horizontalAccuracy > MAX_ACCURACY_METRES) {
       throw new Error("invalid horizontal accuracy");
     }
-    if (!Number.isFinite(cfg.verticalAccuracy) || cfg.verticalAccuracy <= 0) {
+    if (!isSafeInteger(cfg.verticalAccuracy) || cfg.verticalAccuracy < 1 || cfg.verticalAccuracy > MAX_ACCURACY_METRES) {
       throw new Error("invalid vertical accuracy");
     }
-    if (!Number.isFinite(cfg.unknownValue4)) {
+    if (!isSafeInteger(cfg.unknownValue4)) {
       throw new Error("invalid location field 4");
     }
-    if (!Number.isFinite(cfg.motionActivityType) || !Number.isFinite(cfg.motionActivityConfidence)) {
+    if (!isSafeInteger(cfg.motionActivityType) || !isSafeInteger(cfg.motionActivityConfidence)) {
       throw new Error("invalid motion metadata");
     }
     return cfg;
@@ -524,48 +547,45 @@
     return concatBytes(parts);
   }
 
-  function patchWifiDevice(wifiPayload, config) {
-    var fields = parseFields(wifiPayload);
+  function patchLocationRecord(recordPayload, locationFieldNumber, config) {
+    var fields = tryParseFields(recordPayload);
+    if (fields === null) {
+      return { payload: recordPayload, patched: false };
+    }
     var parts = [];
     var patchedLocation = false;
 
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
-      if (field.fieldNumber === 2 && field.wireType === 2) {
-        parts.push(makeLengthDelimitedField(2, patchLocation(field.valueBytes, config)));
+      if (
+        field.fieldNumber === locationFieldNumber &&
+        field.wireType === 2 &&
+        tryParseFields(field.valueBytes) !== null
+      ) {
+        parts.push(makeLengthDelimitedField(locationFieldNumber, patchLocation(field.valueBytes, config)));
         patchedLocation = true;
       } else {
         parts.push(field.raw);
       }
     }
 
-    if (!patchedLocation) {
-      parts.push(makeLengthDelimitedField(2, patchLocation(bytesFromArray([]), config)));
-    }
+    return { payload: concatBytes(parts), patched: patchedLocation };
+  }
 
-    return concatBytes(parts);
+  function patchWifiDeviceWithStatus(wifiPayload, config) {
+    return patchLocationRecord(wifiPayload, 2, config);
+  }
+
+  function patchWifiDevice(wifiPayload, config) {
+    return patchWifiDeviceWithStatus(wifiPayload, config).payload;
+  }
+
+  function patchCellTowerWithStatus(cellPayload, config) {
+    return patchLocationRecord(cellPayload, 5, config);
   }
 
   function patchCellTower(cellPayload, config) {
-    var fields = parseFields(cellPayload);
-    var parts = [];
-    var patchedLocation = false;
-
-    for (var i = 0; i < fields.length; i += 1) {
-      var field = fields[i];
-      if (field.fieldNumber === 5 && field.wireType === 2) {
-        parts.push(makeLengthDelimitedField(5, patchLocation(field.valueBytes, config)));
-        patchedLocation = true;
-      } else {
-        parts.push(field.raw);
-      }
-    }
-
-    if (!patchedLocation) {
-      parts.push(makeLengthDelimitedField(5, patchLocation(bytesFromArray([]), config)));
-    }
-
-    return concatBytes(parts);
+    return patchCellTowerWithStatus(cellPayload, config).payload;
   }
 
   function patchAppleWLocPayload(payload, config) {
@@ -577,11 +597,21 @@
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
       if (field.fieldNumber === 2 && field.wireType === 2) {
-        parts.push(makeLengthDelimitedField(2, patchWifiDevice(field.valueBytes, config)));
-        wifiCount += 1;
+        var patchedWifi = patchWifiDeviceWithStatus(field.valueBytes, config);
+        if (patchedWifi.patched) {
+          parts.push(makeLengthDelimitedField(2, patchedWifi.payload));
+          wifiCount += 1;
+        } else {
+          parts.push(field.raw);
+        }
       } else if (isCellResponseField(field.fieldNumber) && field.wireType === 2) {
-        parts.push(makeLengthDelimitedField(field.fieldNumber, patchCellTower(field.valueBytes, config)));
-        cellCount += 1;
+        var patchedCell = patchCellTowerWithStatus(field.valueBytes, config);
+        if (patchedCell.patched) {
+          parts.push(makeLengthDelimitedField(field.fieldNumber, patchedCell.payload));
+          cellCount += 1;
+        } else {
+          parts.push(field.raw);
+        }
       } else if (!ROOT_DROP_FIELDS[field.fieldNumber]) {
         parts.push(field.raw);
       }
@@ -787,6 +817,17 @@
     var extraction = extractAppleWLocPayload(responseBytes);
     var patched = patchAppleWLocPayload(extraction.payload, config);
     var response;
+
+    if (patched.wifiCount + patched.cellCount === 0) {
+      return {
+        response: responseBytes,
+        payload: extraction.payload,
+        wifiCount: patched.wifiCount,
+        cellCount: patched.cellCount,
+        kind: extraction.kind,
+        prefix: extraction.prefix ? hexPreview(extraction.prefix, 8) : ""
+      };
+    }
 
     if (extraction.kind === "arpc") {
       // Write back in ARPC format, preserving the original envelope metadata.

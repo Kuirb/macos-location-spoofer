@@ -170,6 +170,57 @@ assert.equal(bareResult.kind, "bare");
 assert.deepEqual(bareResult.response, bareResult.payload, "bare protobuf gained an envelope");
 assert.equal(spoofer.extractAppleWLocPayload(bareResult.response).kind, "bare");
 
+const unsupported = Uint8Array.from(Buffer.from("000100000001000000021801", "hex"));
+const unsupportedResult = spoofer.spoofAppleResponse(unsupported, target);
+assert.equal(unsupportedResult.wifiCount + unsupportedResult.cellCount, 0);
+assert.deepEqual(unsupportedResult.response, unsupported, "unsupported responses must remain byte-for-byte unchanged");
+
+const emptyWifiRecord = Uint8Array.from([0x12, 0x00]);
+const emptyWifiResult = spoofer.spoofAppleResponse(emptyWifiRecord, target);
+assert.equal(emptyWifiResult.wifiCount + emptyWifiResult.cellCount, 0);
+assert.deepEqual(emptyWifiResult.response, emptyWifiRecord, "records without a location payload must remain unchanged");
+
+const malformedWifiRecord = Uint8Array.from([0x12, 0x01, 0x00]);
+const malformedWifiResult = spoofer.spoofAppleResponse(malformedWifiRecord, target);
+assert.equal(malformedWifiResult.wifiCount + malformedWifiResult.cellCount, 0);
+assert.deepEqual(malformedWifiResult.response, malformedWifiRecord, "malformed records must remain unchanged");
+
+const mixedRoot = spoofer.concatBytes([malformedWifiRecord, wifi]);
+const mixedResult = spoofer.spoofAppleResponse(mixedRoot, target);
+assert.equal(mixedResult.wifiCount, 1, "valid records after malformed ones must still be rewritten");
+assert.deepEqual(
+  spoofer.parseFields(mixedResult.response)[0].raw,
+  malformedWifiRecord,
+  "malformed records must be preserved while later valid records are rewritten"
+);
+
+const overlongVarintLocation = Uint8Array.from([
+  0x08,
+  0x80, 0x80, 0x80, 0x80, 0x80,
+  0x80, 0x80, 0x80, 0x80, 0x80,
+  0x00
+]);
+const overlongWifiRecord = spoofer.concatBytes([
+  Uint8Array.from([0x12, overlongVarintLocation.length]),
+  overlongVarintLocation
+]);
+const overlongWifiResponse = spoofer.concatBytes([
+  Uint8Array.from([0x12, overlongWifiRecord.length]),
+  overlongWifiRecord
+]);
+const overlongWifiResult = spoofer.spoofAppleResponse(overlongWifiResponse, target);
+assert.equal(overlongWifiResult.wifiCount + overlongWifiResult.cellCount, 0);
+assert.deepEqual(overlongWifiResult.response, overlongWifiResponse, "overlong varint records must remain unchanged");
+
+const mixedOverlongRoot = spoofer.concatBytes([overlongWifiResponse, wifi]);
+const mixedOverlongResult = spoofer.spoofAppleResponse(mixedOverlongRoot, target);
+assert.equal(mixedOverlongResult.wifiCount, 1, "valid records after overlong varints must still be rewritten");
+assert.deepEqual(
+  spoofer.parseFields(mixedOverlongResult.response)[0].raw,
+  overlongWifiResponse,
+  "overlong varint records must be preserved while later valid records are rewritten"
+);
+
 assert.throws(
   () => spoofer.normalizeConfig({ latitude: 91, longitude: 0 }),
   /invalid latitude/
@@ -185,6 +236,66 @@ assert.throws(
 assert.throws(
   () => spoofer.normalizeConfig({ horizontalAccuracy: 0 }),
   /invalid horizontal accuracy/
+);
+assert.equal(spoofer.normalizeConfig({ horizontalAccuracy: 1 }).horizontalAccuracy, 1);
+assert.equal(spoofer.normalizeConfig({ horizontalAccuracy: 1000000 }).horizontalAccuracy, 1000000);
+assert.throws(
+  () => spoofer.normalizeConfig({ horizontalAccuracy: 1000001 }),
+  /invalid horizontal accuracy/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ verticalAccuracy: 0 }),
+  /invalid vertical accuracy/
+);
+assert.equal(spoofer.normalizeConfig({ verticalAccuracy: 1 }).verticalAccuracy, 1);
+assert.equal(spoofer.normalizeConfig({ verticalAccuracy: 1000000 }).verticalAccuracy, 1000000);
+assert.throws(
+  () => spoofer.normalizeConfig({ verticalAccuracy: 1000001 }),
+  /invalid vertical accuracy/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ horizontalAccuracy: 1.5 }),
+  /invalid horizontal accuracy/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ verticalAccuracy: 1.5 }),
+  /invalid vertical accuracy/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ altitude: 56.5 }),
+  /invalid altitude/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ unknownValue4: 3.5 }),
+  /invalid location field 4/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ motionActivityType: 63.5 }),
+  /invalid motion metadata/
+);
+assert.throws(
+  () => spoofer.normalizeConfig({ motionActivityConfidence: 467.5 }),
+  /invalid motion metadata/
+);
+assert.throws(
+  () => spoofer.encodeVarintSignedInt64(1000000000000000000000000000000),
+  /safe integer|signed int64/
+);
+assert.throws(
+  () => spoofer.encodeVarintSignedInt64(1n << 63n),
+  /signed int64/
+);
+assert.throws(
+  () => spoofer.encodeVarintSignedInt64(-(1n << 63n) - 1n),
+  /signed int64/
+);
+assert.deepEqual(
+  spoofer.encodeVarintSignedInt64(-(1n << 63n)),
+  Uint8Array.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01])
+);
+assert.deepEqual(
+  spoofer.encodeVarintSignedInt64((1n << 63n) - 1n),
+  Uint8Array.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f])
 );
 
 console.log("Protocol test passed: location fields and all supported envelopes were preserved.");
