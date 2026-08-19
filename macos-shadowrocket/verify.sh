@@ -185,6 +185,96 @@ grep -q 'verticalAccuracy=20' "$FROM_CONFIG"
 grep -q 'altitude=40' "$FROM_CONFIG"
 grep -q 'debug=false' "$FROM_CONFIG"
 
+UPDATER_OPTION_SENTINEL='--UPDATER_OPTION_TOKEN'
+UPDATER_PATH_SENTINEL="$TEMP_DIR/UPDATER_PATH_TOKEN-location.conf"
+UPDATER_KEY_SENTINEL='UPDATER_KEY_TOKEN'
+UPDATER_VALUE_SENTINEL='UPDATER_VALUE_TOKEN'
+UPDATER_LATITUDE_SENTINEL='12.345678'
+UPDATER_LONGITUDE_SENTINEL='-23.456789'
+UPDATER_ALTITUDE_SENTINEL='-456'
+UPDATER_CONFIG="$TEMP_DIR/UPDATER_PATH_TOKEN-input.conf"
+
+assert_sanitized_update_rejection() {
+  local expected=$1
+  shift
+  local update_output
+  if update_output=$("$@" 2>&1); then
+    printf 'Expected updater input rejection to fail.\n' >&2
+    exit 1
+  fi
+  [ "$update_output" = "$expected" ] || {
+    printf 'Updater rejection category was not fixed and generic.\n' >&2
+    exit 1
+  }
+  for sensitive_value in \
+    "$UPDATER_OPTION_SENTINEL" \
+    "$UPDATER_PATH_SENTINEL" \
+    "$UPDATER_KEY_SENTINEL" \
+    "$UPDATER_VALUE_SENTINEL" \
+    "$UPDATER_LATITUDE_SENTINEL" \
+    "$UPDATER_LONGITUDE_SENTINEL" \
+    "$UPDATER_ALTITUDE_SENTINEL"
+  do
+    case "$update_output" in
+      *"$sensitive_value"*)
+        printf 'Updater rejection output exposed sensitive input.\n' >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+assert_sanitized_update_rejection \
+  'error: unknown option' \
+  "$SCRIPT_DIR/update-location.sh" "$UPDATER_OPTION_SENTINEL"
+assert_sanitized_update_rejection \
+  'error: option requires a value' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_OPTION_SENTINEL"
+assert_sanitized_update_rejection \
+  'error: configuration file not found' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_PATH_SENTINEL"
+
+printf '%s\n' 'latitude=1' > "$UPDATER_CONFIG"
+chmod 000 "$UPDATER_CONFIG"
+if [ ! -r "$UPDATER_CONFIG" ]; then
+  assert_sanitized_update_rejection \
+    'error: configuration file could not be opened' \
+    "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+fi
+chmod 600 "$UPDATER_CONFIG"
+
+printf '%s\n' "${UPDATER_KEY_SENTINEL}:${UPDATER_VALUE_SENTINEL}" > "$UPDATER_CONFIG"
+assert_sanitized_update_rejection \
+  'error: invalid configuration at line 1' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+
+printf '%s\n' "${UPDATER_KEY_SENTINEL}=" > "$UPDATER_CONFIG"
+assert_sanitized_update_rejection \
+  'error: configuration value is empty at line 1' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+
+printf '%s\n' \
+  "latitude=$UPDATER_LATITUDE_SENTINEL" \
+  "latitude=$UPDATER_LATITUDE_SENTINEL" > "$UPDATER_CONFIG"
+assert_sanitized_update_rejection \
+  'error: duplicate configuration key at line 2' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+
+printf '%s\n' "${UPDATER_KEY_SENTINEL}=${UPDATER_VALUE_SENTINEL}" > "$UPDATER_CONFIG"
+assert_sanitized_update_rejection \
+  'error: unknown configuration key at line 1' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+
+printf '%s\n' \
+  "latitude=$UPDATER_LATITUDE_SENTINEL" \
+  "longitude=$UPDATER_LONGITUDE_SENTINEL" \
+  "altitude=$UPDATER_ALTITUDE_SENTINEL" \
+  'horizontal_accuracy=15' \
+  'vertical_accuracy=25' > "$UPDATER_CONFIG"
+assert_sanitized_update_rejection \
+  'error: missing required configuration key' \
+  "$SCRIPT_DIR/update-location.sh" --config "$UPDATER_CONFIG"
+
 printf '%s\n' \
   'latitude=35.658581' \
   'longitude=139.745433' \

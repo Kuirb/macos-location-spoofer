@@ -25,7 +25,10 @@ die() {
 }
 
 need_value() {
-  [ "$#" -ge 2 ] || die "$1 requires a value"
+  [ "$#" -ge 2 ] || die "option requires a value"
+  case "$2" in
+    --*) die "option requires a value" ;;
+  esac
 }
 
 trim() {
@@ -52,16 +55,20 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      die "unknown option: $1"
+      die "unknown option"
       ;;
   esac
 done
 
 if [ ! -f "$config" ]; then
   if [ "$config" = "$SCRIPT_DIR/location.conf" ]; then
-    die "configuration file not found: $config (copy location.example.conf to location.conf first)"
+    die "configuration file not found (copy macos-shadowrocket/location.example.conf to macos-shadowrocket/location.conf first)"
   fi
-  die "configuration file not found: $config"
+  die "configuration file not found"
+fi
+
+if ! { exec 3< "$config"; } 2>/dev/null; then
+  die "configuration file could not be opened"
 fi
 
 latitude=
@@ -89,49 +96,50 @@ while IFS= read -r line || [ -n "$line" ]; do
 
   case "$stripped" in
     *=*) ;;
-    *) die "$config:$line_number: expected key=value" ;;
+    *) die "invalid configuration at line $line_number" ;;
   esac
 
   key=$(trim "${stripped%%=*}")
   parsed_value=$(trim "${stripped#*=}")
-  [ -n "$parsed_value" ] || die "$config:$line_number: $key has no value"
+  [ -n "$parsed_value" ] || die "configuration value is empty at line $line_number"
 
   case "$key" in
     latitude)
-      [ "$seen_latitude" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_latitude" = false ] || die "duplicate configuration key at line $line_number"
       latitude=$parsed_value
       seen_latitude=true
       ;;
     longitude)
-      [ "$seen_longitude" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_longitude" = false ] || die "duplicate configuration key at line $line_number"
       longitude=$parsed_value
       seen_longitude=true
       ;;
     altitude)
-      [ "$seen_altitude" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_altitude" = false ] || die "duplicate configuration key at line $line_number"
       altitude=$parsed_value
       seen_altitude=true
       ;;
     horizontal_accuracy)
-      [ "$seen_horizontal_accuracy" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_horizontal_accuracy" = false ] || die "duplicate configuration key at line $line_number"
       horizontal_accuracy=$parsed_value
       seen_horizontal_accuracy=true
       ;;
     vertical_accuracy)
-      [ "$seen_vertical_accuracy" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_vertical_accuracy" = false ] || die "duplicate configuration key at line $line_number"
       vertical_accuracy=$parsed_value
       seen_vertical_accuracy=true
       ;;
     debug)
-      [ "$seen_debug" = false ] || die "$config:$line_number: duplicate key: $key"
+      [ "$seen_debug" = false ] || die "duplicate configuration key at line $line_number"
       debug=$parsed_value
       seen_debug=true
       ;;
     *)
-      die "$config:$line_number: unknown key: $key"
+      die "unknown configuration key at line $line_number"
       ;;
   esac
-done < "$config"
+done <&3
+exec 3<&-
 
 for required_key in \
   latitude longitude altitude horizontal_accuracy vertical_accuracy debug
@@ -144,7 +152,7 @@ do
     vertical_accuracy) present=$seen_vertical_accuracy ;;
     debug) present=$seen_debug ;;
   esac
-  [ "$present" = true ] || die "$config: missing required key: $required_key"
+  [ "$present" = true ] || die "missing required configuration key"
 done
 
 "$SCRIPT_DIR/generate-module.sh" \
