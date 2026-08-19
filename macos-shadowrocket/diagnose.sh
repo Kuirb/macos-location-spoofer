@@ -15,48 +15,73 @@ module_summary() {
   if ! awk '
     BEGIN {
       expected_name = "#!name=macOS Location Spoofer"
+      expected_desc = "#!desc=Rewrite Apple Wi-Fi positioning responses on macOS through Shadowrocket. A trusted local MITM CA is required."
+      expected_homepage = "#!homepage=https://github.com/Kuirb/macos-location-spoofer"
       expected_hostname = "hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com"
-      section = ""
+      section = "top"
     }
     /^#!name=/ {
       name_count++
-      if ($0 != expected_name) invalid = 1
+      if (section != "top" || $0 != expected_name) invalid = 1
+      next
+    }
+    /^#!desc=/ {
+      desc_count++
+      if (section != "top" || $0 != expected_desc) invalid = 1
+      next
+    }
+    /^#!homepage=/ {
+      homepage_count++
+      if (section != "top" || $0 != expected_homepage) invalid = 1
+      next
+    }
+    /^#!/ {
+      invalid = 1
+      next
+    }
+    /^[[:space:]]*$/ || /^[[:space:]]*#/ {
       next
     }
     /^\[Script\]$/ {
+      if (section != "top" || script_section_count > 0) invalid = 1
       script_section_count++
       section = "script"
       next
     }
     /^\[MITM\]$/ {
+      if (section != "script" || mitm_section_count > 0) invalid = 1
       mitm_section_count++
       section = "mitm"
       next
     }
     /^\[[^]]+\]$/ {
+      invalid = 1
       section = "other"
       next
     }
-    /^macOS Location Spoofer Prepare[[:space:]]*=/ {
-      prepare_count++
-      if (section != "script") invalid = 1
-      next
-    }
-    /^macOS Location Spoofer Response[[:space:]]*=/ {
-      response_count++
-      if (section != "script") invalid = 1
-      next
-    }
-    /^[[:space:]]*hostname[[:space:]]*=/ {
-      hostname_count++
-      hostname = $0
-      sub(/^[[:space:]]*/, "", hostname)
-      sub(/[[:space:]]*$/, "", hostname)
-      if (section != "mitm" || hostname != expected_hostname) invalid = 1
-      next
+    {
+      if (section == "script") {
+        if ($0 ~ /^macOS Location Spoofer Prepare[[:space:]]*=/) {
+          prepare_count++
+        } else if ($0 ~ /^macOS Location Spoofer Response[[:space:]]*=/) {
+          response_count++
+        } else {
+          invalid = 1
+        }
+        next
+      }
+      if (section == "mitm") {
+        hostname = $0
+        sub(/^[[:space:]]*/, "", hostname)
+        sub(/[[:space:]]*$/, "", hostname)
+        hostname_count++
+        if (hostname != expected_hostname) invalid = 1
+        next
+      }
+      invalid = 1
     }
     END {
-      if (invalid || name_count != 1 || script_section_count != 1 || mitm_section_count != 1 || prepare_count != 1 || response_count != 1 || hostname_count != 1) {
+      if (invalid || name_count != 1 || desc_count != 1 || homepage_count != 1 || script_section_count != 1 || mitm_section_count != 1 || prepare_count != 1 || response_count != 1 || hostname_count != 1) {
         exit 1
       }
       print expected_name

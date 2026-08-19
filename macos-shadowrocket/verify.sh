@@ -95,6 +95,17 @@ sed '/^\[Script\]$/a\
 [Script]' "$SENSITIVE_MODULE" > "$DUPLICATE_SCRIPT_MODULE"
 assert_safe_summary_rejection "$DUPLICATE_SCRIPT_MODULE"
 
+INJECTED_SCRIPT_MODULE="$TEMP_DIR/injected-script.sgmodule"
+awk '
+  /^\[Script\]$/ {
+    print
+    print "Injected Rule = type=http-response,argument=configToken=SENSITIVE_CONFIG_TOKEN"
+    next
+  }
+  { print }
+' "$SENSITIVE_MODULE" > "$INJECTED_SCRIPT_MODULE"
+assert_safe_summary_rejection "$INJECTED_SCRIPT_MODULE"
+
 MISSING_RESPONSE_MODULE="$TEMP_DIR/missing-response.sgmodule"
 sed '/^macOS Location Spoofer Response =/d' "$SENSITIVE_MODULE" > "$MISSING_RESPONSE_MODULE"
 assert_safe_summary_rejection "$MISSING_RESPONSE_MODULE"
@@ -111,6 +122,33 @@ assert_safe_summary_rejection "$EXTRA_HOST_MODULE"
 OUTSIDE_HOST_MODULE="$TEMP_DIR/outside-host.sgmodule"
 printf '%s\n[General]\nhostname = attacker.example\n' "$(cat "$SENSITIVE_MODULE")" > "$OUTSIDE_HOST_MODULE"
 assert_safe_summary_rejection "$OUTSIDE_HOST_MODULE"
+
+INJECTED_MITM_MODULE="$TEMP_DIR/injected-mitm.sgmodule"
+awk '
+  /^hostname = / {
+    print
+    print "skip-cert-verify = true"
+    next
+  }
+  { print }
+' "$SENSITIVE_MODULE" > "$INJECTED_MITM_MODULE"
+assert_safe_summary_rejection "$INJECTED_MITM_MODULE"
+
+NAME_IN_MITM_MODULE="$TEMP_DIR/name-in-mitm.sgmodule"
+awk '
+  /^#!name=/ { next }
+  /^\[MITM\]$/ {
+    print
+    print "#!name=macOS Location Spoofer"
+    next
+  }
+  { print }
+' "$SENSITIVE_MODULE" > "$NAME_IN_MITM_MODULE"
+assert_safe_summary_rejection "$NAME_IN_MITM_MODULE"
+
+UNEXPECTED_SECTION_MODULE="$TEMP_DIR/unexpected-section.sgmodule"
+printf '%s\n[General]\nproxy = configToken=SENSITIVE_CONFIG_TOKEN\n' "$(cat "$SENSITIVE_MODULE")" > "$UNEXPECTED_SECTION_MODULE"
+assert_safe_summary_rejection "$UNEXPECTED_SECTION_MODULE"
 
 MISSING_MODULE_PATH="$TEMP_DIR/SENSITIVE_PATH_latitude=39.9042_configToken=SECRET.sgmodule"
 assert_safe_summary_rejection "$MISSING_MODULE_PATH"
@@ -260,6 +298,28 @@ if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 1000001 --output "$PRE
 fi
 cmp -s "$PRESERVED_OUTPUT" <(printf 'preserve this existing output\n') || {
   printf 'Failed generation replaced an existing output.\n' >&2
+  exit 1
+}
+
+POST_RENDER_PARENT="$TEMP_DIR/post-render-parent"
+POST_RENDER_OUTPUT="$POST_RENDER_PARENT/preserved-output.sgmodule"
+FAKE_SED_BIN="$TEMP_DIR/fake-sed-bin"
+mkdir "$POST_RENDER_PARENT" "$FAKE_SED_BIN"
+printf '%s\n' \
+  '#!/bin/bash' \
+  'printf "__SCRIPT_PATH__\\n"' > "$FAKE_SED_BIN/sed"
+chmod +x "$FAKE_SED_BIN/sed"
+printf 'preserve after render failure\n' > "$POST_RENDER_OUTPUT"
+if PATH="$FAKE_SED_BIN:$PATH" "$SCRIPT_DIR/generate-module.sh" --output "$POST_RENDER_OUTPUT" >/dev/null 2>&1; then
+  printf 'Expected unresolved placeholder validation to fail.\n' >&2
+  exit 1
+fi
+cmp -s "$POST_RENDER_OUTPUT" <(printf 'preserve after render failure\n') || {
+  printf 'Post-render validation failure replaced an existing output.\n' >&2
+  exit 1
+}
+[ -z "$(find "$POST_RENDER_PARENT" -maxdepth 1 -name '.preserved-output.sgmodule.*' -print -quit)" ] || {
+  printf 'Post-render validation failure left a temporary render file behind.\n' >&2
   exit 1
 }
 
