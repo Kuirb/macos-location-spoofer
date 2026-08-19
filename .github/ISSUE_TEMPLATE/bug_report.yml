@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem with sanitized observations only.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, CA material, private keys, personal coordinates, raw payloads, or unsanitized logs.
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: For example, 15.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      options:
+        - Apple silicon
+        - Intel
+        - Other or unknown
+    validations:
+      required: true
+  - type: input
+    id: shadowrocket-version
+    attributes:
+      label: Shadowrocket version
+    validations:
+      required: true
+  - type: textarea
+    id: clls-wloc
+    attributes:
+      label: Exact `/clls/wloc` observation
+      description: State the observed request or response behavior without coordinates, query strings, or payloads.
+    validations:
+      required: true
+  - type: textarea
+    id: mitm-observation
+    attributes:
+      label: MITM observation
+      description: Describe the MITM status and hostname only.
+    validations:
+      required: true
+  - type: textarea
+    id: patch-result
+    attributes:
+      label: Patch/result observation
+      description: Describe what the script reported or changed using sanitized, minimal details.
+    validations:
+      required: true
+  - type: checkboxes
+    id: sanitized
+    attributes:
+      label: Privacy check
+      options:
+        - label: I confirm this report contains no secrets, CA material, private keys, personal coordinates, raw payloads, or unsanitized logs.
+          required: true

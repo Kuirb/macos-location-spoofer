@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a concise, privacy-safe improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, private keys, personal coordinates, raw payloads, or unsanitized logs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What safe, general problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful behavior change.
+    validations:
+      required: true
