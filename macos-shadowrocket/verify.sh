@@ -108,6 +108,11 @@ if "$SCRIPT_DIR/generate-module.sh" --latitude 91 --output "$GENERATED.invalid" 
   exit 1
 fi
 
+if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 0.5 --output "$GENERATED.invalid" >/dev/null 2>&1; then
+  printf 'Expected sub-metre horizontal accuracy to fail.\n' >&2
+  exit 1
+fi
+
 if "$SCRIPT_DIR/generate-module.sh" \
   --script-path 'https://example.invalid/x.js,argument=enabled=false' \
   --output "$GENERATED.injected" >/dev/null 2>&1; then
