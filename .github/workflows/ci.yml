@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        node: [22, 24]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run verification suite
+        run: ./macos-shadowrocket/verify.sh
+      - name: Check committed whitespace errors
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -eu
+          empty_tree=$(git hash-object -t tree /dev/null)
+          base="$empty_tree"
+
+          valid_commit() {
+            [[ "$1" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          case "$EVENT_NAME" in
+            pull_request)
+              if valid_commit "$PR_BASE_SHA"; then
+                base="$PR_BASE_SHA"
+              fi
+              ;;
+            push)
+              if valid_commit "$PUSH_BEFORE_SHA"; then
+                base="$PUSH_BEFORE_SHA"
+              fi
+              ;;
+          esac
+
+          git diff --check "$base" HEAD
+      - name: Confirm clean worktree
+        run: test -z "$(git status --porcelain)"
+
+  verify:
+    name: verify
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require every matrix job to succeed
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: test "$TEST_RESULT" = success

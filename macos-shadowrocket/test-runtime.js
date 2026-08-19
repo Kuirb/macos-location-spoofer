@@ -95,6 +95,154 @@ assert.equal(
 assert.deepEqual(response.logs, [], "debug=false must suppress diagnostic logs");
 assert.equal(persistentReads, 0, "runtime must not read shared persistent-store arguments");
 
+const privateDiagnostics = runRuntime({
+  $environment: { product: "Shadowrocket" },
+  $request: {
+    url: "https://gs-loc.apple.com/clls/wloc?query=SENSITIVE_QUERY#SENSITIVE_QUERY",
+    headers: { "Proxy-Authorization": "SENSITIVE_CONFIG_TOKEN" }
+  },
+  $response: {
+    status: 200,
+    headers: {
+      "content-type": "text/plain",
+      "content-length": String(originalResponse.length),
+      "content-encoding": "identity",
+      "transfer-encoding": "chunked",
+      Authorization: "SENSITIVE_CONFIG_TOKEN",
+      "pRoXy-AuThOrIzAtIoN": "SENSITIVE_CONFIG_TOKEN",
+      Cookie: "SENSITIVE_COOKIE",
+      "Set-Cookie": "SENSITIVE_COOKIE",
+      "X-Location-Spoofer-Target": "35.658581,139.745433",
+      "X-Nested": { authorization: "SENSITIVE_CONFIG_TOKEN", cookie: "SENSITIVE_COOKIE" },
+      "X-Array": ["SENSITIVE_CONFIG_TOKEN", { Cookie: "SENSITIVE_COOKIE" }]
+    },
+    body: originalResponse
+  },
+  $argument:
+    "mode=response&latitude=35.658581&longitude=139.745433&debug=true&dumpRaw=true&dumpHeaders=true&configUrl=" +
+    encodeURIComponent("https://config.example/loc.json?token=SENSITIVE_CONFIG_TOKEN")
+});
+for (const sentinel of ["SENSITIVE_CONFIG_TOKEN", "SENSITIVE_COOKIE", "SENSITIVE_QUERY"]) {
+  assert.equal(
+    privateDiagnostics.logs.some((line) => line.includes(sentinel)),
+    false,
+    `diagnostic logs must not include ${sentinel}`
+  );
+}
+assert.equal(privateDiagnostics.logs.some((line) => line.includes("35.658581")), false);
+assert.equal(privateDiagnostics.logs.some((line) => line.includes("139.745433")), false);
+assert.ok(
+  privateDiagnostics.logs.some((line) => line.includes("url=https://gs-loc.apple.com/clls/wloc, status=200")),
+  "URL diagnostics must omit query strings and fragments"
+);
+assert.ok(
+  privateDiagnostics.logs.some((line) => line.includes("[REDACTED]")),
+  "sensitive headers must be redacted in diagnostics"
+);
+assert.ok(
+  privateDiagnostics.logs.some((line) => line.includes("raw dumps are disabled")),
+  "raw dump requests must emit a safe warning"
+);
+assert.equal(
+  Object.keys(privateDiagnostics.result.headers).filter((name) => name.toLowerCase() === "content-type").length,
+  1,
+  "rewritten response must contain one canonical content type"
+);
+assert.equal(privateDiagnostics.result.headers["Content-Type"], "application/octet-stream");
+assert.equal(
+  Object.keys(privateDiagnostics.result.headers).some((name) =>
+    ["content-length", "content-encoding", "transfer-encoding"].includes(name.toLowerCase()) &&
+    name !== "Content-Length"
+  ),
+  false,
+  "rewritten response must remove stale binary framing headers case-insensitively"
+);
+
+const decompressionFailure = runRuntime({
+  $environment: { product: "Shadowrocket" },
+  $request: { url: "https://gs-loc.apple.com/clls/wloc", headers: {} },
+  $response: {
+    status: 200,
+    headers: { "Content-Encoding": "gzip" },
+    body: Uint8Array.from([0x1f, 0x8b, 0x00])
+  },
+  $argument: "mode=response&debug=false",
+  $utils: {
+    ungzip() {
+      throw new Error("decompression fixture failure");
+    }
+  }
+});
+assert.deepEqual(decompressionFailure.logs, [], "debug=false must suppress decompression diagnostics");
+
+function assertNonStringResponseUrlIsSafe(url, sentinel) {
+  const result = runRuntime({
+    $environment: { product: "Shadowrocket" },
+    $request: { url: "https://gs-loc.apple.com/clls/wloc", headers: {} },
+    $response: {
+      status: 200,
+      url,
+      headers: { "Content-Type": "application/octet-stream" },
+      body: originalResponse
+    },
+    $argument: "mode=response&debug=true&dumpHeaders=true"
+  });
+  assert.equal(result.logs.some((line) => line.includes(sentinel)), false);
+  assert.ok(result.logs.some((line) => line.includes("url=<non-string>")));
+}
+
+assertNonStringResponseUrlIsSafe(
+  ["https://gs-loc.apple.com/clls/wloc", "SENSITIVE_URL_ARRAY"],
+  "SENSITIVE_URL_ARRAY"
+);
+assertNonStringResponseUrlIsSafe(
+  { toString: () => "https://gs-loc.apple.com/clls/wloc?SENSITIVE_URL_OBJECT" },
+  "SENSITIVE_URL_OBJECT"
+);
+
+const sensitivePrefixResponse = spoofer.concatBytes([
+  Uint8Array.from(Buffer.from("SENSITIV", "ascii")),
+  spoofer.APPLE_WLOC_MARKER,
+  spoofer.writeUInt16BE(wifiPayload.length),
+  wifiPayload
+]);
+const sensitivePrefixDiagnostics = runRuntime({
+  $environment: { product: "Shadowrocket" },
+  $request: { url: "https://gs-loc.apple.com/clls/wloc", headers: {} },
+  $response: {
+    status: 200,
+    headers: { "Content-Type": "application/octet-stream" },
+    body: sensitivePrefixResponse
+  },
+  $argument: "mode=response&debug=true"
+});
+assert.equal(sensitivePrefixDiagnostics.logs.some((line) => line.includes("SENSITIV")), false);
+assert.equal(sensitivePrefixDiagnostics.logs.some((line) => line.includes("53454e5349544956")), false);
+
+const probeDiagnostics = runRuntime({
+  $environment: { product: "Shadowrocket" },
+  $request: { url: "https://gs-loc.apple.com/clls/wloc", headers: {} },
+  $response: {
+    status: 200,
+    headers: {
+      "Content-Length": "35.658581,139.745433",
+      "Content-Type": ["application/octet-stream", "PROBE_ARRAY_SECRET"],
+      "Content-Encoding": { toString: () => "PROBE_OBJECT_SECRET" }
+    },
+    body: originalResponse
+  },
+  $argument: "mode=probe&debug=true"
+});
+for (const sensitiveValue of ["35.658581", "139.745433", "PROBE_ARRAY_SECRET", "PROBE_OBJECT_SECRET"]) {
+  assert.equal(probeDiagnostics.logs.some((line) => line.includes(sensitiveValue)), false);
+}
+assert.ok(
+  probeDiagnostics.logs.some((line) =>
+    line.includes("content-length=present, content-type=present, content-encoding=present")
+  ),
+  "probe diagnostics must expose header presence without values"
+);
+
 function locationFieldsFromBody(body) {
   const extracted = spoofer.extractAppleWLocPayload(body);
   const rootFields = spoofer.parseFields(extracted.payload);

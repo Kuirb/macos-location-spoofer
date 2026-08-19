@@ -4,6 +4,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TEMPLATE="$SCRIPT_DIR/module.template.sgmodule"
+TEMP_FILE=""
 
 latitude="37.3349"
 longitude="-122.00902"
@@ -22,8 +23,8 @@ Options:
   --latitude NUMBER             Target latitude (-90...90)
   --longitude NUMBER            Target longitude (-180...180)
   --altitude NUMBER             Altitude in metres (-1000...20000)
-  --horizontal-accuracy NUMBER  Horizontal accuracy in metres (>= 1)
-  --vertical-accuracy NUMBER    Vertical accuracy in metres (>= 1)
+  --horizontal-accuracy NUMBER  Horizontal accuracy in metres (1...1000000)
+  --vertical-accuracy NUMBER    Vertical accuracy in metres (1...1000000)
   --debug true|false            Enable Shadowrocket script diagnostics
   --script-path PATH_OR_URL     Local Script filename or HTTPS URL
   --output PATH                 Generated module path
@@ -41,6 +42,9 @@ die() {
 
 need_value() {
   [ "$#" -ge 2 ] || die "$1 requires a value"
+  case "$2" in
+    --*) die "$1 requires a value" ;;
+  esac
 }
 
 is_number() {
@@ -56,9 +60,28 @@ in_range() {
   }'
 }
 
-at_least_one() {
-  awk -v value="$1" 'BEGIN { exit !(value >= 1) }'
+is_integer() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
 }
+
+is_signed_integer() {
+  case "$1" in
+    -*) is_integer "${1#-}" ;;
+    *) is_integer "$1" ;;
+  esac
+}
+
+cleanup() {
+  if [ -n "${TEMP_FILE:-}" ] && [ -e "$TEMP_FILE" ]; then
+    rm -f "$TEMP_FILE"
+  fi
+}
+
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT TERM
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -107,7 +130,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      die "unknown option: $1"
+      die "unknown option"
       ;;
   esac
 done
@@ -116,12 +139,12 @@ is_number "$latitude" || die "latitude must be a number"
 in_range "$latitude" -90 90 || die "latitude must be between -90 and 90"
 is_number "$longitude" || die "longitude must be a number"
 in_range "$longitude" -180 180 || die "longitude must be between -180 and 180"
-is_number "$altitude" || die "altitude must be a number"
+is_signed_integer "$altitude" || die "altitude must be an integer"
 in_range "$altitude" -1000 20000 || die "altitude must be between -1000 and 20000"
-is_number "$horizontal_accuracy" || die "horizontal accuracy must be a number"
-at_least_one "$horizontal_accuracy" || die "horizontal accuracy must be at least 1"
-is_number "$vertical_accuracy" || die "vertical accuracy must be a number"
-at_least_one "$vertical_accuracy" || die "vertical accuracy must be at least 1"
+is_integer "$horizontal_accuracy" || die "horizontal accuracy must be an integer"
+in_range "$horizontal_accuracy" 1 1000000 || die "horizontal accuracy must be between 1 and 1000000"
+is_integer "$vertical_accuracy" || die "vertical accuracy must be an integer"
+in_range "$vertical_accuracy" 1 1000000 || die "vertical accuracy must be between 1 and 1000000"
 
 case "$debug" in
   true|false) ;;
@@ -140,10 +163,33 @@ case "$script_path" in
     ;;
 esac
 
-[ -f "$TEMPLATE" ] || die "template not found: $TEMPLATE"
-mkdir -p "$(dirname -- "$output")"
+[ -f "$TEMPLATE" ] || die "template not found"
 
-sed \
+case "$output" in
+  *.sgmodule) ;;
+  *) die "output must end in .sgmodule" ;;
+esac
+
+OUTPUT_PARENT=$(dirname -- "$output")
+OUTPUT_NAME=$(basename -- "$output")
+if ! mkdir -p "$OUTPUT_PARENT" 2>/dev/null; then
+  die "could not create output directory"
+fi
+if ! OUTPUT_PARENT=$(CDPATH= cd -- "$OUTPUT_PARENT" 2>/dev/null && pwd -P); then
+  die "could not resolve output directory"
+fi
+OUTPUT="$OUTPUT_PARENT/$OUTPUT_NAME"
+
+if [ "$OUTPUT" = "$TEMPLATE" ] || { [ -e "$OUTPUT" ] && [ "$OUTPUT" -ef "$TEMPLATE" ]; }; then
+  die "output must not replace the module template"
+fi
+[ -d "$OUTPUT" ] && die "output must be a regular file path, not a directory"
+
+if ! TEMP_FILE=$(mktemp "$OUTPUT_PARENT/.${OUTPUT_NAME}.XXXXXX" 2>/dev/null); then
+  die "could not create temporary output"
+fi
+
+if ! sed \
   -e "s|__SCRIPT_PATH__|$script_path|g" \
   -e "s|__LATITUDE__|$latitude|g" \
   -e "s|__LONGITUDE__|$longitude|g" \
@@ -151,8 +197,18 @@ sed \
   -e "s|__HORIZONTAL_ACCURACY__|$horizontal_accuracy|g" \
   -e "s|__VERTICAL_ACCURACY__|$vertical_accuracy|g" \
   -e "s|__DEBUG__|$debug|g" \
-  "$TEMPLATE" > "$output"
+  "$TEMPLATE" > "$TEMP_FILE" 2>/dev/null; then
+  die "could not render module"
+fi
 
-printf 'Generated %s\n' "$output"
-printf 'Target: %s, %s (altitude %sm)\n' "$latitude" "$longitude" "$altitude"
-printf 'Script: %s\n' "$script_path"
+[ -s "$TEMP_FILE" ] || die "generated module is empty"
+if grep -Eq '__[A-Z_]+__' "$TEMP_FILE"; then
+  die "generated module contains unresolved placeholders"
+fi
+
+if ! mv -f "$TEMP_FILE" "$OUTPUT" 2>/dev/null; then
+  die "could not write generated module"
+fi
+TEMP_FILE=""
+
+printf 'Module generated.\n'

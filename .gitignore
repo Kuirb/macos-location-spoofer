@@ -9,6 +9,15 @@ macos-shadowrocket/generated/
 *.cer
 *.pem
 *.key
+*.p12
+*.pfx
+*.der
+*.mobileconfig
+
+# Local environment files can contain credentials; keep the documented example.
+.env
+.env.*
+!.env.example
 
 # Diagnostics
 *.log

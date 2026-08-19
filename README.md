@@ -14,7 +14,7 @@
 - 由你控制的 Mac，以及可正常连接的 Shadowrocket for Mac
 - 有权限把自己的 CA 安装到 macOS **系统（System）钥匙串**并设为信任
 - macOS 定位服务及目标 App 的定位权限已开启
-- Git；运行测试还需要 Node.js 18+，生成模块本身不需要 Node.js
+- Git；运行测试还需要 Node.js 22+，生成模块本身不需要 Node.js
 
 ## 快速开始
 
@@ -40,11 +40,11 @@ debug=false
 
 - `latitude`：`-90` 到 `90`；`longitude`：`-180` 到 `180`
 - `altitude`：`-1000` 到 `20000` 米
-- `horizontal_accuracy`：至少 `1` 米
-- `vertical_accuracy`：至少 `1` 米
+- `horizontal_accuracy`：`1...1000000` 米
+- `vertical_accuracy`：`1...1000000` 米
 - `debug`：`true` 或 `false`
 
-不要加引号或单位；海拔和精度在运行时会被截断为整数。`location.conf` 和 `macos-shadowrocket/generated/` 已被 Git 忽略，但分享截图、日志或压缩包前仍应检查坐标信息。
+不要加引号或单位；纬度和经度可以是小数，海拔和两项精度必须是整数。`location.conf` 和 `macos-shadowrocket/generated/` 已被 Git 忽略；诊断默认会脱敏，但分享截图、日志或压缩包前仍应检查坐标和其他元数据。
 
 ### 2. 测试并生成模块
 
@@ -74,7 +74,7 @@ debug=false
 2. 日志出现 `patched N wifi devices, M cell towers`，且 **`N + M > 0`**。
 3. 地图的“我的位置”移动到目标坐标。
 
-排障结束后改回 `debug=false`，再次生成、导入并重连；分享日志前请先脱敏。
+排障结束后改回 `debug=false`，再次生成、导入并重连；诊断默认会脱敏，但分享前仍请复查日志。
 
 ## 工作原理
 
