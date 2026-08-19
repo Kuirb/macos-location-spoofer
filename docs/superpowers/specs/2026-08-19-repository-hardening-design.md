@@ -31,7 +31,7 @@ Diagnostics print only the module name, configured rule names, and exact MITM ho
 
 ## Repository automation and governance
 
-CI runs `./macos-shadowrocket/verify.sh` on Ubuntu and macOS with Node.js 18 and the current LTS, uses read-only permissions, has a timeout, and pins GitHub-authored Actions to immutable commit SHAs. Dependabot tracks the `github-actions` ecosystem weekly.
+CI runs `./macos-shadowrocket/verify.sh` on Ubuntu and macOS with the supported Node.js 22 and 24 LTS lines, uses read-only permissions, has a timeout, and pins GitHub-authored Actions to immutable commit SHAs. Dependabot tracks the `github-actions` ecosystem weekly.
 
 The repository adds concise `SECURITY.md`, `CONTRIBUTING.md`, issue forms, a pull-request template, and `CODEOWNERS`. Public issue forms explicitly prohibit CA material, private keys, tokens, sensitive coordinates, raw payloads, and unsanitized logs.
 
