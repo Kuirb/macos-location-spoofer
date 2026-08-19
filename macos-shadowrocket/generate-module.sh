@@ -172,6 +172,7 @@ OUTPUT="$OUTPUT_PARENT/$OUTPUT_NAME"
 if [ "$OUTPUT" = "$TEMPLATE" ] || { [ -e "$OUTPUT" ] && [ "$OUTPUT" -ef "$TEMPLATE" ]; }; then
   die "output must not replace the module template"
 fi
+[ -d "$OUTPUT" ] && die "output must be a regular file path, not a directory"
 
 TEMP_FILE=$(mktemp "$OUTPUT_PARENT/.${OUTPUT_NAME}.XXXXXX")
 

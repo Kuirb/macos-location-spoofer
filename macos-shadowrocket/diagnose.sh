@@ -12,33 +12,68 @@ die() {
 }
 
 module_summary() {
-  awk '
-    /^#!name=macOS Location Spoofer$/ && !seen_name {
-      print
-      seen_name = 1
+  if ! awk '
+    BEGIN {
+      expected_name = "#!name=macOS Location Spoofer"
+      expected_hostname = "hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com"
+      section = ""
+    }
+    /^#!name=/ {
+      name_count++
+      if ($0 != expected_name) invalid = 1
       next
     }
-    /^macOS Location Spoofer Prepare =/ && !seen_prepare {
+    /^\[Script\]$/ {
+      script_section_count++
+      section = "script"
+      next
+    }
+    /^\[MITM\]$/ {
+      mitm_section_count++
+      section = "mitm"
+      next
+    }
+    /^\[[^]]+\]$/ {
+      section = "other"
+      next
+    }
+    /^macOS Location Spoofer Prepare[[:space:]]*=/ {
+      prepare_count++
+      if (section != "script") invalid = 1
+      next
+    }
+    /^macOS Location Spoofer Response[[:space:]]*=/ {
+      response_count++
+      if (section != "script") invalid = 1
+      next
+    }
+    /^[[:space:]]*hostname[[:space:]]*=/ {
+      hostname_count++
+      hostname = $0
+      sub(/^[[:space:]]*/, "", hostname)
+      sub(/[[:space:]]*$/, "", hostname)
+      if (section != "mitm" || hostname != expected_hostname) invalid = 1
+      next
+    }
+    END {
+      if (invalid || name_count != 1 || script_section_count != 1 || mitm_section_count != 1 || prepare_count != 1 || response_count != 1 || hostname_count != 1) {
+        exit 1
+      }
+      print expected_name
       print "macOS Location Spoofer Prepare"
-      seen_prepare = 1
-      next
-    }
-    /^macOS Location Spoofer Response =/ && !seen_response {
       print "macOS Location Spoofer Response"
-      seen_response = 1
-      next
+      print expected_hostname
     }
-    /^hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com$/ && !seen_hostname {
-      print
-      seen_hostname = 1
-    }
-  ' "$1"
+  ' "$1" 2>/dev/null; then
+    printf 'warning: module summary is unavailable; inspect the module locally before sharing.\n' >&2
+    return 1
+  fi
 }
 
 if [ "${1:-}" = "--module-summary" ]; then
   [ "$#" -eq 2 ] || die "--module-summary requires a module path"
-  [ -f "$2" ] || die "module not found: $2"
-  module_summary "$2"
+  [ -f "$2" ] || die "module summary is unavailable"
+  module_summary "$2" || exit 2
   exit 0
 fi
 

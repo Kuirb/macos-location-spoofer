@@ -70,6 +70,51 @@ if printf '%s\n' "$MODULE_SUMMARY" | grep -Eq 'latitude=|longitude=|configToken=
   exit 1
 fi
 
+assert_safe_summary_rejection() {
+  if SUMMARY_REJECTION_OUTPUT=$("$SCRIPT_DIR/diagnose.sh" --module-summary "$1" 2>&1); then
+    printf 'Expected an invalid module summary to fail.\n' >&2
+    exit 1
+  fi
+  if printf '%s\n' "$SUMMARY_REJECTION_OUTPUT" | grep -Eq 'latitude=|longitude=|configToken=|argument=|SENSITIVE_PATH|https?://'; then
+    printf 'Invalid module summary output exposed sensitive input.\n' >&2
+    exit 1
+  fi
+}
+
+EMPTY_MODULE="$TEMP_DIR/empty.sgmodule"
+: > "$EMPTY_MODULE"
+assert_safe_summary_rejection "$EMPTY_MODULE"
+
+DUPLICATE_NAME_MODULE="$TEMP_DIR/duplicate-name.sgmodule"
+sed '1a\
+#!name=macOS Location Spoofer' "$SENSITIVE_MODULE" > "$DUPLICATE_NAME_MODULE"
+assert_safe_summary_rejection "$DUPLICATE_NAME_MODULE"
+
+DUPLICATE_SCRIPT_MODULE="$TEMP_DIR/duplicate-script.sgmodule"
+sed '/^\[Script\]$/a\
+[Script]' "$SENSITIVE_MODULE" > "$DUPLICATE_SCRIPT_MODULE"
+assert_safe_summary_rejection "$DUPLICATE_SCRIPT_MODULE"
+
+MISSING_RESPONSE_MODULE="$TEMP_DIR/missing-response.sgmodule"
+sed '/^macOS Location Spoofer Response =/d' "$SENSITIVE_MODULE" > "$MISSING_RESPONSE_MODULE"
+assert_safe_summary_rejection "$MISSING_RESPONSE_MODULE"
+
+OUTSIDE_MITM_MODULE="$TEMP_DIR/outside-mitm.sgmodule"
+sed '/^\[MITM\]$/d' "$SENSITIVE_MODULE" > "$OUTSIDE_MITM_MODULE"
+assert_safe_summary_rejection "$OUTSIDE_MITM_MODULE"
+
+EXTRA_HOST_MODULE="$TEMP_DIR/extra-host.sgmodule"
+sed '/^hostname = /a\
+hostname = attacker.example' "$SENSITIVE_MODULE" > "$EXTRA_HOST_MODULE"
+assert_safe_summary_rejection "$EXTRA_HOST_MODULE"
+
+OUTSIDE_HOST_MODULE="$TEMP_DIR/outside-host.sgmodule"
+printf '%s\n[General]\nhostname = attacker.example\n' "$(cat "$SENSITIVE_MODULE")" > "$OUTSIDE_HOST_MODULE"
+assert_safe_summary_rejection "$OUTSIDE_HOST_MODULE"
+
+MISSING_MODULE_PATH="$TEMP_DIR/SENSITIVE_PATH_latitude=39.9042_configToken=SECRET.sgmodule"
+assert_safe_summary_rejection "$MISSING_MODULE_PATH"
+
 EXAMPLE_GENERATED="$TEMP_DIR/from-example.sgmodule"
 "$SCRIPT_DIR/update-location.sh" \
   --config "$SCRIPT_DIR/location.example.conf" \
@@ -180,6 +225,60 @@ if "$SCRIPT_DIR/generate-module.sh" --output "$SCRIPT_DIR/module.template.sgmodu
   printf 'Expected the module template output path to fail.\n' >&2
   exit 1
 fi
+
+DESTINATION_DIRECTORY="$TEMP_DIR/destination-directory.sgmodule"
+mkdir "$DESTINATION_DIRECTORY"
+if "$SCRIPT_DIR/generate-module.sh" --output "$DESTINATION_DIRECTORY" >/dev/null 2>&1; then
+  printf 'Expected a directory destination to fail.\n' >&2
+  exit 1
+fi
+[ -d "$DESTINATION_DIRECTORY" ] || {
+  printf 'Directory destination was unexpectedly replaced.\n' >&2
+  exit 1
+}
+[ -z "$(find "$DESTINATION_DIRECTORY" -mindepth 1 -print -quit)" ] || {
+  printf 'Directory destination received generated content.\n' >&2
+  exit 1
+}
+
+SYMLINK_DIRECTORY="$TEMP_DIR/symlink-directory.sgmodule"
+ln -s "$DESTINATION_DIRECTORY" "$SYMLINK_DIRECTORY"
+if "$SCRIPT_DIR/generate-module.sh" --output "$SYMLINK_DIRECTORY" >/dev/null 2>&1; then
+  printf 'Expected a symlink-to-directory destination to fail.\n' >&2
+  exit 1
+fi
+[ -L "$SYMLINK_DIRECTORY" ] && [ -d "$SYMLINK_DIRECTORY" ] || {
+  printf 'Symlink-to-directory destination was unexpectedly replaced.\n' >&2
+  exit 1
+}
+
+PRESERVED_OUTPUT="$TEMP_DIR/preserved-output.sgmodule"
+printf 'preserve this existing output\n' > "$PRESERVED_OUTPUT"
+if "$SCRIPT_DIR/generate-module.sh" --horizontal-accuracy 1000001 --output "$PRESERVED_OUTPUT" >/dev/null 2>&1; then
+  printf 'Expected invalid generation to fail before replacing output.\n' >&2
+  exit 1
+fi
+cmp -s "$PRESERVED_OUTPUT" <(printf 'preserve this existing output\n') || {
+  printf 'Failed generation replaced an existing output.\n' >&2
+  exit 1
+}
+
+ATOMIC_PARENT="$TEMP_DIR/atomic-parent"
+ATOMIC_OUTPUT="$ATOMIC_PARENT/atomic-output.sgmodule"
+mkdir "$ATOMIC_PARENT"
+"$SCRIPT_DIR/generate-module.sh" --output "$ATOMIC_OUTPUT" >/dev/null
+[ -f "$ATOMIC_OUTPUT" ] || {
+  printf 'Expected atomic output to be a regular file.\n' >&2
+  exit 1
+}
+[ ! -L "$ATOMIC_OUTPUT" ] || {
+  printf 'Expected atomic output not to be a symlink.\n' >&2
+  exit 1
+}
+[ -z "$(find "$ATOMIC_PARENT" -maxdepth 1 -name '.atomic-output.sgmodule.*' -print -quit)" ] || {
+  printf 'Generator left a temporary render file behind.\n' >&2
+  exit 1
+}
 
 NO_NODE_BIN="$TEMP_DIR/no-node-bin"
 mkdir "$NO_NODE_BIN"
