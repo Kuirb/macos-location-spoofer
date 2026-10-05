@@ -2,12 +2,18 @@
 
 **English** · [中文](README.md)
 
-Rewrite Apple Wi-Fi positioning responses on macOS through Shadowrocket—without a macOS app, Xcode, or disabling SIP. It is intended for development and testing on Macs, accounts, and networks you own or are authorized to use.
+> [!IMPORTANT]
+> **Compatibility notice (2026-10-04): the original location-rewriting method has been patched/blocked by the OS.**
+> According to the [upstream maintainer](https://github.com/mekos2772/ios-location-spoofer/pull/71), Apple introduced certificate pinning for location hosts in **iOS 27 beta 6**, blocking the HTTPS MITM / WLOC response-rewriting path used by this approach. “Fixed” means the OS closed that path, **not that this project works again**. This is not an Apple security-advisory or CVE claim.
+>
+> This repository targets macOS. Troubleshooting on **macOS 27.2 beta 2 (26B5091g)** also failed to restore location spoofing, and this project currently has no verified remedy. The iOS version boundary does not establish an equivalent macOS boundary. The code and instructions below remain as historical research material, not a promise of support for newer systems.
+
+This project previously rewrote Apple Wi-Fi positioning responses on macOS through Shadowrocket—without a macOS app, Xcode, or disabling SIP. It is intended for development and testing on Macs, accounts, and networks you own or are authorized to use.
 
 > [!WARNING]
 > HTTPS decryption requires a locally generated, system-trusted CA. This repository ships no CA or private key: create your own, keep it private, restrict MITM to the four hosts below, and remove it afterward. The rewriter is fail-open, so unsupported responses pass through unchanged and may reveal the real location. Never use this for navigation, emergencies, fraud, access control, or unauthorized testing.
 
-**Tested:** Apple Silicon · macOS 27.0 (26A5378j) · Shadowrocket 2.2.90 · Apple Maps / Core Location. This is one verified setup, not a compatibility guarantee.
+**Historically verified setup:** Apple Silicon · macOS 27.0 (26A5378j) · Shadowrocket 2.2.90 · Apple Maps / Core Location. That past result does not establish compatibility with current systems.
 
 ## Requirements
 
@@ -16,7 +22,9 @@ Rewrite Apple Wi-Fi positioning responses on macOS through Shadowrocket—withou
 - Git and standard macOS command-line tools; Node.js 22+ only for local tests (no npm install)
 - Permission to install/trust your own CA and a Shadowrocket TUN route that captures `locationd`
 
-## Quick start
+## Historical usage
+
+For research on older environments only. Deployment is not recommended on affected systems; existing users can follow [Restore and uninstall](#restore-and-uninstall).
 
 Clone, create a private config, validate, and generate a module:
 
@@ -91,6 +99,8 @@ Set `debug=false`, regenerate, reload, and reconnect afterward; diagnostics are 
 This changes one network-based positioning path. It does not emulate GPS, change your public IP, or force every app to use the rewritten location.
 
 ## Troubleshooting
+
+Read the compatibility notice first. When the OS blocks MITM, changing coordinates, repeatedly reinstalling a CA, or expanding the host list is not a verified remedy. Disable the location module and its HTTPS decryption, then follow the restoration steps below; keep system security protections enabled. The following checks apply only to older environments not affected by that restriction.
 
 - **No request or script:** enable the module and TUN, confirm Maps requested current location, check the exact local script filename, then reconnect.
 - **Request is not rewritten:** check HTTPS decryption, HTTP/2 handling, System-keychain CA trust, the four configured hosts, and the response hook.

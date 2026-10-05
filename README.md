@@ -2,12 +2,18 @@
 
 **中文** · [English](README.en.md)
 
-通过 Shadowrocket 在 macOS 上定向改写 Apple Wi‑Fi/基站定位响应，无需 macOS App、Xcode 或关闭 SIP。目标坐标保存在本地纯文本配置中，修改后即可重新生成 Shadowrocket 模块。这是研究与测试用途的概念验证，不是系统级 GPS 驱动，也不保证影响所有 App。
+> [!IMPORTANT]
+> **兼容性说明（2026-10-04）：原定位改写方式已被系统修补/阻断。**
+> 根据[上游维护者说明](https://github.com/mekos2772/ios-location-spoofer/pull/71)，Apple 在 **iOS 27 beta 6** 对定位主机启用了证书固定，阻断了本方案依赖的 HTTPS MITM / WLOC 响应改写路径。这里的“已修复”指系统封堵了原有定位修改方式，**不是本项目恢复可用**；这也不是 Apple 官方安全公告或 CVE 声明。
+>
+> 本仓库面向 macOS：在 **macOS 27.2 beta 2（26B5091g）** 的实际排障中，定位改写同样未恢复可用，目前没有本项目已验证的解决方案。iOS 的版本分界不能直接套用到 macOS。以下代码与教程保留作历史研究参考，不构成对新系统的支持承诺。
+
+本项目曾通过 Shadowrocket 在 macOS 上定向改写 Apple Wi‑Fi/基站定位响应，无需 macOS App、Xcode 或关闭 SIP。目标坐标保存在本地纯文本配置中，修改后可重新生成 Shadowrocket 模块。这是研究与测试用途的概念验证，不是系统级 GPS 驱动，也不保证影响所有 App。
 
 > [!WARNING]
 > HTTPS 解密需要让 macOS 全局信任你自己生成的 CA；仓库不附带 CA 或私钥。仅在你拥有或获授权的设备和网络上使用，勿用于紧急定位、导航、安全控制、欺诈或绕过平台规则。解析失败时脚本会放行原响应，真实位置仍可能出现，因此它不是位置隐私防火墙；使用完毕后应关闭 MITM 并移除该 CA。
 
-**已验证：** macOS 27.0（26A5378j）、Apple Silicon、Shadowrocket for Mac 2.2.90；已确认 `locationd` 请求被 MITM、AppleWLoc 响应被改写、地图位置随之变化。其他版本可能表现不同。
+**历史验证环境：** macOS 27.0（26A5378j）、Apple Silicon、Shadowrocket for Mac 2.2.90；当时确认了 `locationd` 请求被 MITM、AppleWLoc 响应被改写、地图位置随之变化。这不代表当前系统仍可用。
 
 ## 要求
 
@@ -16,7 +22,9 @@
 - macOS 定位服务及目标 App 的定位权限已开启
 - Git；运行测试还需要 Node.js 22+，生成模块本身不需要 Node.js
 
-## 快速开始
+## 历史使用方法
+
+仅供研究旧环境。受上述系统限制影响的设备不建议继续部署；已安装的用户可参考[恢复与卸载](#恢复与卸载)。
 
 ### 1. 下载并创建本地配置
 
@@ -92,6 +100,8 @@ debug=false
 仅保存配置不会更新已导入的模块；更换坐标不需要重新生成 CA。
 
 ## 故障排查
+
+先检查顶部兼容性说明。系统阻断 MITM 时，修改坐标、反复重装 CA 或扩大解密主机范围不能作为已验证的修复；请关闭定位模块及其 HTTPS 解密，按下文恢复，不要为此关闭系统安全保护。以下检查仅适用于未受该限制影响的旧环境。
 
 - **地图仍在真实位置：** 刷新模块、重连 Shadowrocket、检查定位权限，并等待 Core Location 缓存更新。
 - **请求不是 MITM / TLS 报错：** 检查 HTTPS 解密、HTTP/2、四个主机，以及系统钥匙串中的 CA 信任。
